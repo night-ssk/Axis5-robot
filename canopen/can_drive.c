@@ -95,37 +95,43 @@ void* canSend(int* arg)
 /************************电机控制*********************************/
     while (running) {
         pthread_mutex_lock(&cmd_lock); // 加锁
+        int cmd = currentCommand[i + 3].commandAvailable;
+        int distance = currentCommand[i + 3].distance;
+        pthread_mutex_unlock(&cmd_lock); // 解锁
             for (int i = 0; i < 2; i++) {
-                if (currentCommand[i + 3].commandAvailable == 1)
+                if (cmd == 1)
                 {
                     addData(&bus[w_targetSpd_1 + i], U32, 3600);
                     sendAndReceiveSDO(socket,&bus[w_targetSpd_1 + i]);//设置轮廓速度
 
-                    addData(&bus[w_targetPos_1 + i], I32, currentCommand[i + 3].distance);
+                    addData(&bus[w_targetPos_1 + i], I32, cmd);
                     sendSDO(socket,&bus[w_targetPos_1 + i]);
                     
                     addData(&bus[w_ctrlword_1 + i], U16, 0x1F);
                     sendSDO(socket,&bus[w_ctrlword_1 + i]); // 更新目标
                     
-                    printf("cmd %d : %d \n", i, currentCommand[i + 3].distance);
+                    printf("cmd %d : %d \n", i, cmd);
+                    pthread_mutex_lock(&cmd_lock); // 加锁
                     currentCommand[i + 3].commandAvailable = 2; //运动中
+                    pthread_mutex_unlock(&cmd_lock); // 解锁
                 }
-                else if (currentCommand[i + 3].commandAvailable == 2) //到位
+                else if (cmd == 2) //到位
                 {
                     readSDO(socket, &bus[r_actualPos_1 + i]);
                     int pos = bus[r_actualPos_1 + i].sdo.name.data.i32;
-                    if(pos == currentCommand[i + 3].distance)
+                    if(pos == cmd)
                     {
                         printf("val %d : %d \n", status, pos);
 
                         addData(&bus[w_ctrlword_1 + i], U16, 0x0F);
                         sendSDO(socket,&bus[w_ctrlword_1 + i]); // 更新目标
+                        pthread_mutex_lock(&cmd_lock); // 加锁
                         currentCommand[i + 3].commandAvailable = 0;
+                        pthread_mutex_unlock(&cmd_lock); // 解锁
                     }
                 }
                 usleep(10000);
             }
-        pthread_mutex_unlock(&cmd_lock); // 解锁
     }
     return (void*)0;
 }
