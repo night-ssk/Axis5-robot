@@ -24,15 +24,26 @@ int client_sock = -1;
 pthread_mutex_t client_sock_mutex = PTHREAD_MUTEX_INITIALIZER;
 extern MotorCommandSet cmdSet;
 extern pthread_mutex_t cmdSet_mutex;
+
 // 初始化队列
 void initQueue(CommandQueue* queue) {
+    //清除队列
+    while(queue->front != NULL) {
+        CommandNode* temp = queue->front;
+        queue->front = queue->front->next;
+        free(temp);
+    }
     queue->front = queue->rear = NULL;
+    queue->size = 0;
+    queue->max = 20;
     pthread_mutex_init(&queue->mutex, NULL);
-    pthread_cond_init(&queue->cond, NULL);
 }
 
 // 入队
 void enqueue(CommandQueue* queue, MotorCommandSet* commandSet) {
+    while(queue->size >= queue->max) {
+        usleep(1000);
+    }
     CommandNode* newNode = (CommandNode*)malloc(sizeof(CommandNode));
     if (!newNode) {
         fprintf(stderr, "内存分配失败\n");
@@ -48,7 +59,7 @@ void enqueue(CommandQueue* queue, MotorCommandSet* commandSet) {
         queue->rear->next = newNode;
         queue->rear = newNode;
     }
-    pthread_cond_signal(&queue->cond); // 通知等待的线程
+    queue->size++;
     pthread_mutex_unlock(&queue->mutex);
 }
  
@@ -63,12 +74,14 @@ int dequeue_non_blocking(CommandQueue* queue, MotorCommandSet* commandSet) {
         if (queue->front == NULL) {
             queue->rear = NULL;
         }
+        queue->size--;
         free(temp);
         ret = 1;
     }
     pthread_mutex_unlock(&queue->mutex);
     return ret;
 }
+
 void updateStatues(MotorCommandSet *cmd) {
     if (cmd->mode != cmd->previous_mode) {
         // 根据 mode 的变化更新 statue，这里假设 mode 为1时 statue 设置为100，否则设置为0
@@ -79,6 +92,63 @@ void updateStatues(MotorCommandSet *cmd) {
         cmd->previous_mode = cmd->mode;
     }
 }
+void readFile(char* arg) {
+    char* filename = arg;
+    printf("readCommands 接收到的文件名: %s\n", filename); // 调试输出
+
+    FILE* file = fopen(filename, "r");
+    if (!file) {
+        fprintf(stderr, "无法打开文件: %s\n", filename);
+        return ;
+    }
+
+    char line[1024];
+    // 初始化队列
+    initQueue(&commandQueue);
+
+    // 按行读取文件
+    while (fgets(line, sizeof(line), file) != NULL) {
+        // 去除换行符
+        line[strcspn(line, "\n")] = 0;
+
+        // 处理位置命令，例如: pp 0 -14 -27 ...
+        if (strncmp(line, "pos", 3) == 0) {
+            MotorCommandSet cmdGet;
+            memset(&cmdGet, 0, sizeof(MotorCommandSet));
+            cmdGet.mode = MODEL_CSP;
+
+            // 解析电机位置参数
+            char* token = strtok(line, " ");
+            token = strtok(NULL, " ");
+
+            int motorIndex = 0;
+            int valid = 1;
+            while (token != NULL && motorIndex < MOTOR_NUM) {
+                int pos = atoi(token);
+                cmdGet.target_pos[motorIndex] = pos;
+                token = strtok(NULL, " ");
+                motorIndex++;
+            }
+            if (motorIndex != MOTOR_NUM) {
+                fprintf(stderr, "接收到的电机参数数量不匹配（期望 %d，收到 %d）\n", MOTOR_NUM, motorIndex);
+                valid = 0;
+            }
+            if (valid) {
+                // 入队命令
+                enqueue(&commandQueue, &cmdGet);
+            } else {
+                // 发送错误信息回客户端
+                char error_msg[256];
+                snprintf(error_msg, sizeof(error_msg), "Error: Invalid 'pos' command: %s\n", line);
+                // send(sock, error_msg, strlen(error_msg), 0);
+            }
+        }
+    }
+    fclose(file);
+    printf("命令文件读取完成。\n");
+    return ;
+}
+
 // 发送状态更新给客户端
 void* sendStatusToClient(void* arg) {
     int sock = *(int*)arg;
@@ -204,7 +274,16 @@ void* clientHandler(void* arg) {
                     memset(&cmdGet, 0, sizeof(MotorCommandSet));
                     cmdGet.mode = MODEL_DISABLE;
                     enqueue(&commandQueue, &cmdGet);
-                } else {
+                } else if (strncmp(line, "load", 4) == 0) { //load 1.txt readFile
+                    // 读取命令文件
+                    char* filename = strtok(line, " ");
+                    filename = strtok(NULL, " ");
+                    printf("接收到 load 命令: %s\n", filename);
+                    if (filename) {
+                        readFile(filename);
+                    }
+                }
+                else {
                     fprintf(stderr, "未知命令: %s\n", line);
                     // 发送错误信息回客户端
                     char error_msg[256];

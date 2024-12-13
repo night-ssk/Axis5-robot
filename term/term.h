@@ -27,6 +27,8 @@ typedef struct {
     CommandNode* rear;
     pthread_mutex_t mutex;
     pthread_cond_t cond;
+    int size;
+    int max;
 } CommandQueue;
 
 // 队列接口

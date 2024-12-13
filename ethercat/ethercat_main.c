@@ -293,7 +293,7 @@ void* ethercatMaster(void* arg)
     
     dc_time_ns = getSysTime();
     // 为每个从站配置分布式时钟 DC
-    for (uint32_t i = 1; i < SLAVE_NUM; i++)
+    for (uint32_t i = 0; i < SLAVE_NUM; i++)
     {
         // ecrt_slave_config_sdo16(slave_config[i].sc, 0x1c32, 1, 2);
         // ecrt_slave_config_sdo16(slave_config[i].sc, 0x1c33, 1, 2);
@@ -308,7 +308,7 @@ void* ethercatMaster(void* arg)
     ecrt_slave_config_sdo8(slave_config[0].sc, 0x6001, 0x01, 0);
     ecrt_slave_config_sdo8(slave_config[0].sc, 0x6002, 0x01, 0);
     // 选择参考时钟（第一个从站）
-    ret = ecrt_master_select_reference_clock(master, slave_config[1].sc);
+    ret = ecrt_master_select_reference_clock(master, slave_config[0].sc);
     if (ret < 0)
     {
         printf("Failed to select reference clock: %s\n", strerror(-ret));

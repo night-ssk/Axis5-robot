@@ -143,20 +143,16 @@ void csp(struct _Domain* domain, int target_pos, int motorID, int* state) {
             }
         }
     } else {
-            //EC_WRITE_S32(domain->domain_pd + motor_parm[motorID].target_pos, target_pos); // 设置目标位置
-        if (motorID == 2 || motorID == 3 || motorID == 4)//直线电机
-            EC_WRITE_S32(domain->domain_pd + motor_parm[motorID].target_pos, target_pos); // 设置目标位置
-        else if (motorID == 0 || motorID == 1 )//步进电机
-        {
-            int motor_encode_val = EC_READ_S32(domain->domain_pd + motor_parm[motorID].current_pos);
-            int out = target_pos + motor_encode_val - cmdSet.actual_pos[motorID];
-            if(motorID == 0) {
-                printf("motorid: %d : target %d  motor_encode_val: %d actual_pos: %d\n", motorID, target_pos, motor_encode_val, cmdSet.actual_pos[motorID]);
-            }
+        EC_WRITE_S32(domain->domain_pd + motor_parm[motorID].target_pos, target_pos); // 设置目标位置
+        // if (motorID == 2 || motorID == 3 || motorID == 4)//直线电机
+        //     EC_WRITE_S32(domain->domain_pd + motor_parm[motorID].target_pos, target_pos); // 设置目标位置
+        // else if (motorID == 0 || motorID == 1 )//步进电机
+        // {
+        //     int motor_encode_val = EC_READ_S32(domain->domain_pd + motor_parm[motorID].current_pos);
+        //     int out = OUT_Compute(&motor_pid[motorID], target_pos, cmdSet.actual_pos[motorID], motor_encode_val);
 
-            out += PID_Compute(&motor_pid[motorID], target_pos, cmdSet.actual_pos[motorID]);
-            EC_WRITE_S32(domain->domain_pd + motor_parm[motorID].target_pos, out); // 设置目标位置
-        }
+        //     EC_WRITE_S32(domain->domain_pd + motor_parm[motorID].target_pos, out); // 设置目标位置
+        // }
     }
 }
 void enable(struct _Domain* domain, int motorID, int* state) {
@@ -256,9 +252,10 @@ bool homeCDHD(struct _Domain* domain, int* motorMode, int motorID) {
     return false;
 }
 void updatePos(struct _Domain* domain) {
-    cmdSet.actual_pos[0]= EC_READ_S32(domain->domain_pd + slave_encoder_offset.encoder_val[0]);
-    cmdSet.actual_pos[1]= EC_READ_S32(domain->domain_pd + slave_encoder_offset.encoder_val[1]);
-    cmdSet.actual_pos[2]= EC_READ_S32(domain->domain_pd + slave_encoder_offset.encoder_val[2]);
+    cmdSet.actual_pos[0] = EC_READ_S32(domain->domain_pd + slave_encoder_offset.encoder_val[0]);
+    cmdSet.actual_pos[1] = EC_READ_S32(domain->domain_pd + slave_encoder_offset.encoder_val[1]);
+    // cmdSet.actual_pos[2]= EC_READ_S32(domain->domain_pd + slave_encoder_offset.encoder_val[2]);
+    cmdSet.actual_pos[2] = EC_READ_S32(domain->domain_pd + motor_parm[2].current_pos);
     cmdSet.actual_pos[3] = EC_READ_S32(domain->domain_pd + motor_parm[3].current_pos);
     cmdSet.actual_pos[4] = EC_READ_S32(domain->domain_pd + motor_parm[4].current_pos);
 }
@@ -294,6 +291,9 @@ void motor_main(struct _Domain* domain) {
             }
             else if (cmdSet.mode == MODEL_ENABLE) {
                 //enable(domain, i, &cmdSet.state[i]);
+            }
+            if (i == 3){
+                printf("target:%d actual:%d\n", cmdSet.target_pos[i], cmdSet.actual_pos[i]);
             }
             // if(i == 3) {
                 //printf("target_pos: %d, actual_pos: %d\n", EC_READ_S32(domain->domain_pd + motor_parm[i].target_pos), EC_READ_S32(domain->domain_pd + motor_parm[i].current_pos));

@@ -12,6 +12,7 @@ typedef struct {
     float pre_previous_error;// 保存两次前的误差
     float output;            // 输出增量
     float integral;          // 误差积分
+    int last_measured;       // 上一次测量值
 } PID_Controller;
 PID_Controller motor_pid[3];
 // 初始化PID控制器
@@ -22,5 +23,5 @@ void PID_Reset(PID_Controller *pid);
 
 // 位置式PID计算函数
 float PID_Compute(PID_Controller *pid, float setpoint, float measured);
-
+float OUT_Compute(PID_Controller *pid, int setpoint, int measured, int motor_encode_val);
 #endif // PID_H
