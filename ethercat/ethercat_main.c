@@ -224,6 +224,15 @@ void cyclic_task(struct _SlaveConfig *slave_config, struct _Domain *domain)
 #endif
     }
 }
+
+// 新增函数，用于配置回零参数
+static void configure_homing_parameters(ec_slave_config_t *sc, uint8_t homing_method, uint32_t homing_speed, uint32_t homing_acceleration) {
+    ecrt_slave_config_sdo8(sc, 0x6098, 0x00, homing_method); // 设置回零方式
+    ecrt_slave_config_sdo32(sc, 0x6099, 0x01, homing_speed); // 设置回零速度-快
+    ecrt_slave_config_sdo32(sc, 0x6099, 0x02, homing_speed); // 设置回零速度-慢
+    ecrt_slave_config_sdo32(sc, 0x609A, 0x00, homing_acceleration); // 设置回零加速度
+}
+
 /**
  * 主函数
  */
@@ -293,22 +302,32 @@ void* ethercatMaster(void* arg)
     
     dc_time_ns = getSysTime();
     // 为每个从站配置分布式时钟 DC
-    for (uint32_t i = 0; i < SLAVE_NUM; i++)
+    for (uint32_t i = 1; i < SLAVE_NUM; i++)
     {
         // ecrt_slave_config_sdo16(slave_config[i].sc, 0x1c32, 1, 2);
         // ecrt_slave_config_sdo16(slave_config[i].sc, 0x1c33, 1, 2);
         ecrt_slave_config_dc(slave_config[i].sc, 0x0300, PERIOD_NS, PERIOD_NS / 4, 0, 0);
     }
     printf("Configuration DC success.");
-    // ecrt_slave_config_sdo8(slave_config[0].sc, 0x6098, 0x00, 24); // 设置回零方式
-    // ecrt_slave_config_sdo32(slave_config[0].sc, 0x6099, 0x01, 20000); // 设置回零速度-快
-    // ecrt_slave_config_sdo32(slave_config[0].sc, 0x6099, 0x02, 20000); // 设置回零速度-慢
-    // ecrt_slave_config_sdo32(slave_config[0].sc, 0x609A, 0x00, 200000); // 设置回零加速度
+    
+    // 配置回零参数
+    // configure_homing_parameters(slave_config[0].sc, 24, 20000, 200000);
+
     ecrt_slave_config_sdo8(slave_config[0].sc, 0x6000, 0x01, 0);
     ecrt_slave_config_sdo8(slave_config[0].sc, 0x6001, 0x01, 0);
     ecrt_slave_config_sdo8(slave_config[0].sc, 0x6002, 0x01, 0);
-    // 选择参考时钟（第一个从站）
-    ret = ecrt_master_select_reference_clock(master, slave_config[0].sc);
+
+    ecrt_slave_config_sdo32(slave_config[3].sc, 0x6081, 0x0, 1000);
+    ecrt_slave_config_sdo32(slave_config[3].sc, 0x6083, 0x0, 1000);
+    ecrt_slave_config_sdo32(slave_config[3].sc, 0x6084, 0x0, 1000);
+
+    ecrt_slave_config_sdo32(slave_config[4].sc, 0x6081, 0x0, 1000);
+    ecrt_slave_config_sdo32(slave_config[4].sc, 0x6083, 0x0, 1000);
+    ecrt_slave_config_sdo32(slave_config[4].sc, 0x6084, 0x0, 1000);
+
+
+    // 选择参考时钟（第二个从站）
+    ret = ecrt_master_select_reference_clock(master, slave_config[1].sc);
     if (ret < 0)
     {
         printf("Failed to select reference clock: %s\n", strerror(-ret));

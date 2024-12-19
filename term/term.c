@@ -10,7 +10,7 @@
 #include <arpa/inet.h> // For sockets
 #include <netinet/in.h>
 #include <errno.h>
-
+#include "log.h"
 // 宏定义
 #define PORT 12345 // 服务端监听的端口
 #define BUFFER_SIZE 1024

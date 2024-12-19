@@ -12,6 +12,7 @@
 #include <stdbool.h>
 #include "encoder.h"
 #include "pid.h"
+#include "log.h"
 #define  CDHDNUM 2
 
 // 引入命令队列
@@ -65,44 +66,25 @@ void homeing(struct _Domain* domain, int* motorMode, int motorID, int* state) {
                 *state = 2;
             }
         }  else if (*state == 2) {
-            EC_WRITE_U16(domain->domain_pd + motor_parm[motorID].ctrl_word, 0x06); // 电机得电
-            if((status & 0xFF) == 0x31) {
+            EC_WRITE_U16(domain->domain_pd + motor_parm[motorID].ctrl_word, 0x07); // 电机得电
+            if((status & 0xFF) == 0x33) {
                 *state = 3;
             }
         } else if (*state == 3) {
-            EC_WRITE_U16(domain->domain_pd + motor_parm[motorID].ctrl_word, 0x07); // 电机得电
-            if((status & 0xFF) == 0x33) {
+            EC_WRITE_U16(domain->domain_pd + motor_parm[motorID].ctrl_word, 0x0f); // 回零就绪
+            if((status & 0xFF) == 0x37 && (status & 0xFF00) == 0x0600) {           
                 *state = 4;
             }
-        } else if (*state == 4) {
-            EC_WRITE_U16(domain->domain_pd + motor_parm[motorID].ctrl_word, 0x0f); // 使能电机
-            if((status & 0xFF) == 0x37 && (status & 0xFF00) == 0x0600) {
+        }
+        else if (*state == 4) {
+            EC_WRITE_U16(domain->domain_pd + motor_parm[motorID].ctrl_word, 0x1F); // 启动回零
+            if((status & 0xFF) == 0x37 && (status & 0xFF00) == 0x1600) {  //回零完成
+                printf("电机%d回零完成\n", motorID);
+                *motorMode = MODEL_ENABLE;
                 *state = 10;
             }
-        
         }
     }
-    if (operation_mode_display == MODEL_HOME && (status & 0xFF) == 0x37) {
-        if ((status & 0xFF00) == 0x0600) {
-            EC_WRITE_U16(domain->domain_pd + motor_parm[motorID].ctrl_word, 0x1F); // 启动运行
-        }
-        else if ((status & 0xFF00) == 0x1600) { // 到位
-            printf("电机%d回零完成\n", motorID);
-            *motorMode = MODEL_ENABLE;
-            EC_WRITE_U16(domain->domain_pd + motor_parm[motorID].ctrl_word, 0x07); // 重置
-            return;
-        }
-    }
-    else {
-        EC_WRITE_S8(domain->domain_pd + motor_parm[motorID].operation_mode, MODEL_HOME); // 设置操作模式
-
-        EC_WRITE_U16(domain->domain_pd + motor_parm[motorID].ctrl_word, 0x06); // 电机得电
-        EC_WRITE_U16(domain->domain_pd + motor_parm[motorID].ctrl_word, 0x07); // 电机得电
-        EC_WRITE_U16(domain->domain_pd + motor_parm[motorID].ctrl_word, 0x0f); // 重置
-        printf("电机%d开始回零运动\n", motorID);
-
-    }
-
 }
 
 
@@ -226,45 +208,91 @@ bool initCDHD(struct _Domain* domain){
     }
     return false;
 }
-bool homeCDHD(struct _Domain* domain, int* motorMode, int motorID) {
-    int8_t operation_mode_display = EC_READ_U16(domain->domain_pd + motor_parm[motorID].operation_mode_display); // 读取状态字
-    uint16_t status = EC_READ_U16(domain->domain_pd + motor_parm[motorID].status_word);             // 读取状态字
-    if (operation_mode_display == MODEL_HOME && (status & 0xFF) == 0x37) {
-        if ((status & 0xFF00) == 0x0600) {
-            EC_WRITE_U16(domain->domain_pd + motor_parm[motorID].ctrl_word, 0x1F); // 启动运行
-        }
-        else if ((status & 0xFF00) == 0x1600) { // 到位
-            printf("cdhd %d号电机回零完成\n", motorID);
-            *motorMode = MODEL_ENABLE;
-            EC_WRITE_U16(domain->domain_pd + motor_parm[motorID].ctrl_word, 0x07); // 重置
-            return true;
-        }
+bool motordir(struct _Domain* domain, int motorID){
+    static bool init_flag[3] = {false, false , false};
+    static int init_state[3] = {0};
+    
+    static int32_t start_pos_encoder[3] = {0};
+    static int32_t end_pos_encoder[3] = {0};
+    static int32_t diff_pos_encoder[3] = {0};
+    
+    static int32_t start_pos_linear[3] = {0};
+    static int32_t end_pos_linear[3] = {0};
+    static int32_t diff_pos_linear[3] = {0};
+
+    static int16_t times_wait[3] = {50, 50, 50}; // 等待时间2s
+
+    int8_t operation_mode_display;
+    uint16_t cdhd_status = EC_READ_U16(domain->domain_pd + motor_parm[motorID].status_word);
+    if (init_flag[motorID] == true) {
+        return true;
     }
-    else {
-        EC_WRITE_S8(domain->domain_pd + motor_parm[motorID].operation_mode, MODEL_HOME); // 设置操作模式
+    if (init_state[motorID] == 0) {
+        operation_mode_display = EC_READ_U16(domain->domain_pd + motor_parm[motorID].operation_mode_display);
+        if ( operation_mode_display != MODEL_CSP) {
+            EC_WRITE_S8(domain->domain_pd + motor_parm[motorID].operation_mode, MODEL_CSP);
+        }else{
+                init_state[motorID] = 1;
+        }
+    } else if (init_state[motorID] == 1) {   // 电机初始位置测量
+        EC_WRITE_U16(domain->domain_pd + motor_parm[motorID].ctrl_word, 0x06); // 重置电机
+        if((cdhd_status & 0xFF) == 0x31)
+        {
+            init_state[motorID] = 2;
+        }
+    } else if (init_state[motorID] == 2) {
+        EC_WRITE_U16(domain->domain_pd + motor_parm[motorID].ctrl_word, 0x07); // 重置电机
+        if((cdhd_status & 0xFF) == 0x33)
+        {
+            init_state[motorID] = 3;
+        }
+    } else if (init_state[motorID] == 3) {
+        EC_WRITE_U16(domain->domain_pd + motor_parm[motorID].ctrl_word, 0x0f); // 重置电机
+        if((cdhd_status & 0xFF) == 0x37)
+        {
+            init_state[motorID] = 4;
+            start_pos_encoder[motorID] = EC_READ_S32(domain->domain_pd + motor_parm[motorID].current_pos);
+            start_pos_linear[motorID] = EC_READ_S32(domain->domain_pd + slave_encoder_offset.encoder_val[motorID]);
+        }
+    } else if (init_state[motorID] == 4) {
+        EC_WRITE_S32(domain->domain_pd + motor_parm[motorID].target_pos, 200);
+        if(times_wait[motorID]-- == 0)  init_state[motorID] = 5;
+    } else if (init_state[motorID] == 5) {
+        end_pos_encoder[motorID] = EC_READ_S32(domain->domain_pd + motor_parm[motorID].current_pos);
+        end_pos_linear[motorID] = EC_READ_S32(domain->domain_pd + slave_encoder_offset.encoder_val[motorID]);
+        diff_pos_encoder[motorID] = end_pos_encoder[motorID] - start_pos_encoder[motorID];
+        diff_pos_linear[motorID] = end_pos_linear[motorID] - start_pos_linear[motorID];
+        int tmp_dir = diff_pos_encoder[motorID] / diff_pos_linear[motorID];
 
-        EC_WRITE_U16(domain->domain_pd + motor_parm[motorID].ctrl_word, 0x06); // 电机得电
-        EC_WRITE_U16(domain->domain_pd + motor_parm[motorID].ctrl_word, 0x07); // 电机得电
-        EC_WRITE_U16(domain->domain_pd + motor_parm[motorID].ctrl_word, 0x0f); // 重置
-        printf("cdhd %d号电机开始回零运动\n", motorID);
+        cmdSet.dir[motorID] = tmp_dir > 0 ? 1 : -1;
 
+        EC_WRITE_U16(domain->domain_pd + motor_parm[motorID].ctrl_word, 0x06); // 重置电机
+        printf("电机%d编码器位置差: %d, 直线电机位置差: %d\n", motorID, diff_pos_encoder[motorID], diff_pos_linear[motorID]);
+        init_flag[motorID] = true;
     }
     return false;
 }
 void updatePos(struct _Domain* domain) {
-    cmdSet.actual_pos[0] = EC_READ_S32(domain->domain_pd + slave_encoder_offset.encoder_val[0]);
-    cmdSet.actual_pos[1] = EC_READ_S32(domain->domain_pd + slave_encoder_offset.encoder_val[1]);
+    cmdSet.actual_pos[0] = EC_READ_S32(domain->domain_pd + slave_encoder_offset.encoder_val[0]) * cmdSet.dir[0];
+    cmdSet.actual_pos[1] = EC_READ_S32(domain->domain_pd + slave_encoder_offset.encoder_val[1]) * cmdSet.dir[1];
+    cmdSet.actual_pos[2] = EC_READ_S32(domain->domain_pd + slave_encoder_offset.encoder_val[2]) * cmdSet.dir[2] * 0.625f;
     // cmdSet.actual_pos[2]= EC_READ_S32(domain->domain_pd + slave_encoder_offset.encoder_val[2]);
-    cmdSet.actual_pos[2] = EC_READ_S32(domain->domain_pd + motor_parm[2].current_pos);
+    //int actual_pos2= EC_READ_S32(domain->domain_pd + slave_encoder_offset.encoder_val[2]);
+    //cmdSet.actual_pos[2] = EC_READ_S32(domain->domain_pd + motor_parm[2].current_pos);
     cmdSet.actual_pos[3] = EC_READ_S32(domain->domain_pd + motor_parm[3].current_pos);
     cmdSet.actual_pos[4] = EC_READ_S32(domain->domain_pd + motor_parm[4].current_pos);
 }
 // 主电机控制函数
+
 void motor_main(struct _Domain* domain) {
-    static int32_t times = 0;
+    //static int32_t times = 0;
     if (initCDHD(domain) == false) {
         return;
     }
+    bool dirret0 = motordir(domain, 0);
+    bool dirret1 = motordir(domain, 1);
+    bool dirret2 = motordir(domain, 2);
+    if (dirret0 == false || dirret1 == false || dirret2 == false) return;
     // 上锁
     pthread_mutex_lock(&cmdSet_mutex);
     MotorCommandSet cmdCur;
@@ -292,15 +320,6 @@ void motor_main(struct _Domain* domain) {
             else if (cmdSet.mode == MODEL_ENABLE) {
                 //enable(domain, i, &cmdSet.state[i]);
             }
-            if (i == 3){
-                printf("target:%d actual:%d\n", cmdSet.target_pos[i], cmdSet.actual_pos[i]);
-            }
-            // if(i == 3) {
-                //printf("target_pos: %d, actual_pos: %d\n", EC_READ_S32(domain->domain_pd + motor_parm[i].target_pos), EC_READ_S32(domain->domain_pd + motor_parm[i].current_pos));
-            // }
-            //if(times++%500 == 0) {
-                //printf("status: %d %d %d %d %d %d %d\n", cmdSet.mode, cmdSet.state[0], cmdSet.state[1], cmdSet.state[2], cmdSet.state[3], cmdSet.state[4], cmdSet.state[5]);
-            //}
     }
     //解锁
     pthread_mutex_unlock(&cmdSet_mutex);

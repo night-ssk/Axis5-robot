@@ -4,6 +4,7 @@
 #include "timesync.h"
 
 #include "igh.h"
+#include "log.h"
 /* Application parameters */
 #define CLOCK_TO_USE CLOCK_REALTIME
 #define MEASURE_TIMING

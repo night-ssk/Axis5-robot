@@ -13,6 +13,7 @@ typedef struct {
     int previous_mode;
     int mode;
     int state[MOTOR_NUM];
+    int8_t dir[MOTOR_NUM];
 } MotorCommandSet;
 
 // 命令队列节点
